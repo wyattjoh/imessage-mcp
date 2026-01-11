@@ -3,29 +3,16 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ContactInfo, PaginatedResult } from "./types.ts";
 
-interface Contact {
-  id: number;
-  firstName: string | undefined;
-  lastName: string | undefined;
-  organization: string | undefined;
-  fullName: string;
-  phoneNumbers: string[];
-  emailAddresses: string[];
-}
-
-interface ContactRow {
-  id: number;
+/**
+ * Internal interface for the JOIN query results.
+ * Each row represents a single contact handle (phone or email).
+ */
+interface ContactHandleRow {
   firstName: string | null;
   lastName: string | null;
   organization: string | null;
-}
-
-interface PhoneRow {
-  ZFULLNUMBER: string | null;
-}
-
-interface EmailRow {
-  ZADDRESS: string | null;
+  handle: string;
+  handle_type: "phone" | "email";
 }
 
 /**
@@ -81,86 +68,199 @@ export function openContactsDatabases(): Database[] {
 }
 
 /**
- * Searches for contacts by name in the macOS AddressBook and returns their phone numbers and email addresses.
- * Phone numbers are normalized to match iMessage handle format (e.g., +1 prefix for US numbers).
- * @param contactsDatabases - Array of AddressBook database connections
- * @param firstName - First name to search for (searches across all name fields if lastName not provided)
- * @param lastName - Optional last name for more specific search
- * @param limit - Maximum number of results to return (default: 50)
- * @param offset - Number of results to skip for pagination (default: 0)
- * @returns Paginated results with contact names and their phone/email handles
+ * Builds the WHERE clause and parameters for contact search queries.
  */
-export function searchContactsByName(
-  contactsDatabases: Database[],
+function buildWhereClause(
   firstName: string,
   lastName: string | undefined,
-  limit = 50,
-  offset = 0,
-): PaginatedResult<ContactInfo> {
-  try {
-    // First get all contacts matching the search term to count total results
-    const allContacts = searchContactsInAddressBook(
-      contactsDatabases,
-      firstName,
-      lastName,
-      1000,
-      0,
-    );
-
-    // Transform AddressBook contacts to ContactInfo format
-    const allContactInfos: ContactInfo[] = [];
-
-    for (const contact of allContacts) {
-      // Add entries for each phone number
-      for (const phone of contact.phoneNumbers) {
-        const normalizedPhone = normalizePhoneNumber(phone);
-        if (normalizedPhone) {
-          allContactInfos.push({
-            name: contact.fullName,
-            phone: normalizedPhone,
-          });
-        }
-      }
-
-      // Also add email addresses as they can be iMessage handles
-      for (const email of contact.emailAddresses) {
-        if (email) {
-          allContactInfos.push({
-            name: contact.fullName,
-            phone: email,
-          });
-        }
-      }
-    }
-
-    // Calculate pagination metadata
-    const total = allContactInfos.length;
-    const hasMore = offset + limit < total;
-    const page = Math.floor(offset / limit) + 1;
-    const totalPages = Math.ceil(total / limit);
-
-    // Apply pagination
-    const paginatedData = allContactInfos.slice(offset, offset + limit);
-
+): { whereClause: string; params: string[] } {
+  if (firstName === "" && !lastName) {
+    // Return all contacts with at least one name field
     return {
-      data: paginatedData,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore,
-        page,
-        totalPages,
-      },
+      whereClause:
+        "(r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)",
+      params: [],
     };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to search contacts: ${errorMessage}`);
   }
+
+  if (lastName) {
+    // Search for both first and last name
+    const firstNamePattern = `%${firstName}%`;
+    const lastNamePattern = `%${lastName}%`;
+    return {
+      whereClause: `
+        (r.ZFIRSTNAME LIKE ? AND r.ZLASTNAME LIKE ?)
+        AND (r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)
+      `,
+      params: [firstNamePattern, lastNamePattern],
+    };
+  }
+
+  // Search by first name across all name fields
+  const searchPattern = `%${firstName}%`;
+  return {
+    whereClause: `
+      (r.ZFIRSTNAME LIKE ? OR r.ZLASTNAME LIKE ? OR r.ZORGANIZATION LIKE ? OR r.ZNICKNAME LIKE ?)
+      AND (r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)
+    `,
+    params: [searchPattern, searchPattern, searchPattern, searchPattern],
+  };
 }
 
 /**
- * Normalize a phone number to the format used by iMessage handles
+ * Counts total contact handles (phones + emails) matching the search criteria.
+ */
+function countContactHandles(
+  db: Database,
+  firstName: string,
+  lastName: string | undefined,
+): number {
+  const { whereClause, params } = buildWhereClause(firstName, lastName);
+
+  const countQuery = `
+    SELECT COUNT(*) as total FROM (
+      SELECT 1
+      FROM ZABCDRECORD r
+      INNER JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
+      WHERE ${whereClause}
+      AND p.ZFULLNUMBER IS NOT NULL
+
+      UNION ALL
+
+      SELECT 1
+      FROM ZABCDRECORD r
+      INNER JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
+      WHERE ${whereClause}
+      AND e.ZADDRESS IS NOT NULL
+    )
+  `;
+
+  // Parameters are used twice (once for phones, once for emails)
+  const allParams = [...params, ...params];
+  const result = db.prepare(countQuery).get(...allParams) as { total: number };
+  return result.total;
+}
+
+/**
+ * Fetches contact handles (phones + emails) with SQL-level pagination.
+ * Uses a UNION query to fetch both phones and emails in a single query.
+ */
+function fetchContactHandles(
+  db: Database,
+  firstName: string,
+  lastName: string | undefined,
+  limit: number,
+  offset: number,
+): ContactHandleRow[] {
+  const { whereClause, params } = buildWhereClause(firstName, lastName);
+
+  const dataQuery = `
+    SELECT
+      r.ZFIRSTNAME as firstName,
+      r.ZLASTNAME as lastName,
+      r.ZORGANIZATION as organization,
+      p.ZFULLNUMBER as handle,
+      'phone' as handle_type
+    FROM ZABCDRECORD r
+    INNER JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
+    WHERE ${whereClause}
+    AND p.ZFULLNUMBER IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      r.ZFIRSTNAME as firstName,
+      r.ZLASTNAME as lastName,
+      r.ZORGANIZATION as organization,
+      e.ZADDRESS as handle,
+      'email' as handle_type
+    FROM ZABCDRECORD r
+    INNER JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
+    WHERE ${whereClause}
+    AND e.ZADDRESS IS NOT NULL
+
+    ORDER BY lastName, firstName, handle
+    LIMIT ? OFFSET ?
+  `;
+
+  // Parameters: WHERE params (x2 for UNION), then LIMIT, OFFSET
+  const allParams = [...params, ...params, limit, offset];
+  return db.prepare(dataQuery).all(...allParams) as ContactHandleRow[];
+}
+
+/**
+ * Searches across multiple AddressBook databases with proper pagination.
+ * Handles offset consumption and result aggregation across databases.
+ */
+function searchContactHandlesAcrossDatabases(
+  databases: Database[],
+  firstName: string,
+  lastName: string | undefined,
+  limit: number,
+  offset: number,
+): { rows: ContactHandleRow[]; total: number } {
+  let totalAcrossDbs = 0;
+  let remainingOffset = offset;
+  let remainingLimit = limit;
+  const results: ContactHandleRow[] = [];
+
+  for (const db of databases) {
+    try {
+      // Get count for this database
+      const dbCount = countContactHandles(db, firstName, lastName);
+      totalAcrossDbs += dbCount;
+
+      // Skip this database entirely if offset exceeds its count
+      if (remainingOffset >= dbCount) {
+        remainingOffset -= dbCount;
+        continue;
+      }
+
+      // We've collected enough results
+      if (remainingLimit <= 0) {
+        continue; // Still need to count remaining databases for total
+      }
+
+      // Fetch data from this database
+      const rows = fetchContactHandles(
+        db,
+        firstName,
+        lastName,
+        remainingLimit,
+        remainingOffset,
+      );
+
+      results.push(...rows);
+      remainingOffset = 0; // Offset consumed
+      remainingLimit -= rows.length;
+    } catch (error) {
+      console.error("Error searching in database:", error);
+      // Continue with other databases
+    }
+  }
+
+  return { rows: results, total: totalAcrossDbs };
+}
+
+/**
+ * Builds a full name from contact name parts.
+ */
+function buildFullName(
+  firstName: string | null,
+  lastName: string | null,
+  organization: string | null,
+): string {
+  const nameParts: string[] = [];
+  if (firstName) nameParts.push(firstName);
+  if (lastName) nameParts.push(lastName);
+  if (nameParts.length === 0 && organization) {
+    nameParts.push(organization);
+  }
+  return nameParts.join(" ") || "Unknown";
+}
+
+/**
+ * Normalize a phone number to the format used by iMessage handles.
  */
 function normalizePhoneNumber(phone: string): string {
   // Remove all non-digit characters except +
@@ -185,151 +285,88 @@ function normalizePhoneNumber(phone: string): string {
   return cleaned || phone;
 }
 
-function searchContactsInAddressBook(
+/**
+ * Transforms ContactHandleRow results into ContactInfo array.
+ * Applies phone normalization and deduplication.
+ */
+function transformToContactInfo(rows: ContactHandleRow[]): ContactInfo[] {
+  const seen = new Set<string>();
+  const results: ContactInfo[] = [];
+
+  for (const row of rows) {
+    const name = buildFullName(row.firstName, row.lastName, row.organization);
+
+    // Normalize phone numbers, keep emails as-is
+    const handle = row.handle_type === "phone"
+      ? normalizePhoneNumber(row.handle)
+      : row.handle;
+
+    // Skip empty handles
+    if (!handle) {
+      continue;
+    }
+
+    // Deduplicate by name + handle
+    const key = `${name}|${handle}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    results.push({ name, phone: handle });
+  }
+
+  return results;
+}
+
+/**
+ * Searches for contacts by name in the macOS AddressBook and returns their phone numbers and email addresses.
+ * Phone numbers are normalized to match iMessage handle format (e.g., +1 prefix for US numbers).
+ * @param contactsDatabases - Array of AddressBook database connections
+ * @param firstName - First name to search for (searches across all name fields if lastName not provided)
+ * @param lastName - Optional last name for more specific search
+ * @param limit - Maximum number of results to return (default: 50)
+ * @param offset - Number of results to skip for pagination (default: 0)
+ * @returns Paginated results with contact names and their phone/email handles
+ */
+export function searchContactsByName(
   contactsDatabases: Database[],
   firstName: string,
   lastName: string | undefined,
-  limit = 20,
+  limit = 50,
   offset = 0,
-): Contact[] {
-  const contacts: Contact[] = [];
-
+): PaginatedResult<ContactInfo> {
   try {
-    // Search in each AddressBook database
-    for (const db of contactsDatabases) {
-      try {
-        // Query for contacts matching the search term
-        let contactRows: unknown[];
-
-        if (firstName === "" && !lastName) {
-          // If search is empty, return all contacts
-          const query = `
-            SELECT DISTINCT
-              r.Z_PK as id,
-              r.ZFIRSTNAME as firstName,
-              r.ZLASTNAME as lastName,
-              r.ZORGANIZATION as organization
-            FROM ZABCDRECORD r
-            WHERE (r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)
-            ORDER BY r.ZLASTNAME, r.ZFIRSTNAME
-          `;
-          contactRows = db.prepare(query).all();
-        } else if (lastName) {
-          // Search for both first and last name
-          const firstNamePattern = `%${firstName}%`;
-          const lastNamePattern = `%${lastName}%`;
-          const query = `
-            SELECT DISTINCT
-              r.Z_PK as id,
-              r.ZFIRSTNAME as firstName,
-              r.ZLASTNAME as lastName,
-              r.ZORGANIZATION as organization
-            FROM ZABCDRECORD r
-            WHERE (
-              r.ZFIRSTNAME LIKE ? AND r.ZLASTNAME LIKE ?
-            )
-            AND (r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)
-            ORDER BY r.ZLASTNAME, r.ZFIRSTNAME
-          `;
-          contactRows = db
-            .prepare(query)
-            .all(firstNamePattern, lastNamePattern);
-        } else {
-          // Search only by first name (also check last name, organization, and nickname)
-          const searchPattern = `%${firstName}%`;
-          const query = `
-            SELECT DISTINCT
-              r.Z_PK as id,
-              r.ZFIRSTNAME as firstName,
-              r.ZLASTNAME as lastName,
-              r.ZORGANIZATION as organization
-            FROM ZABCDRECORD r
-            WHERE (
-              r.ZFIRSTNAME LIKE ? OR
-              r.ZLASTNAME LIKE ? OR
-              r.ZORGANIZATION LIKE ? OR
-              r.ZNICKNAME LIKE ?
-            )
-            AND (r.ZFIRSTNAME IS NOT NULL OR r.ZLASTNAME IS NOT NULL OR r.ZORGANIZATION IS NOT NULL)
-            ORDER BY r.ZLASTNAME, r.ZFIRSTNAME
-          `;
-          contactRows = db
-            .prepare(query)
-            .all(searchPattern, searchPattern, searchPattern, searchPattern);
-        }
-
-        for (const row of contactRows) {
-          const contactRow = row as ContactRow;
-          if (!contactRow.id) continue; // Skip contacts without valid ID
-
-          const contact: Contact = {
-            id: contactRow.id,
-            firstName: contactRow.firstName ?? undefined,
-            lastName: contactRow.lastName ?? undefined,
-            organization: contactRow.organization ?? undefined,
-            fullName: "",
-            phoneNumbers: [],
-            emailAddresses: [],
-          };
-
-          // Build full name
-          const nameParts = [];
-          if (contact.firstName) nameParts.push(contact.firstName);
-          if (contact.lastName) nameParts.push(contact.lastName);
-          if (nameParts.length === 0 && contact.organization) {
-            nameParts.push(contact.organization);
-          }
-          contact.fullName = nameParts.join(" ") || "Unknown";
-
-          // Get phone numbers
-          const phoneQuery = `
-            SELECT ZFULLNUMBER
-            FROM ZABCDPHONENUMBER
-            WHERE ZOWNER = ?
-            ORDER BY ZORDERINGINDEX
-          `;
-          const phoneRows = db
-            .prepare(phoneQuery)
-            .all(contact.id) as PhoneRow[];
-          contact.phoneNumbers = phoneRows
-            .map((r) => r.ZFULLNUMBER)
-            .filter((phone): phone is string => phone != null);
-
-          // Get email addresses
-          const emailQuery = `
-            SELECT ZADDRESS
-            FROM ZABCDEMAILADDRESS
-            WHERE ZOWNER = ?
-            ORDER BY ZORDERINGINDEX
-          `;
-          const emailRows = db
-            .prepare(emailQuery)
-            .all(contact.id) as EmailRow[];
-          contact.emailAddresses = emailRows
-            .map((r) => r.ZADDRESS)
-            .filter((email): email is string => email != null);
-
-          contacts.push(contact);
-        }
-      } catch (error) {
-        console.error("Error searching in database:", error);
-        // Continue with other databases
-      }
-    }
-
-    // Remove duplicates and apply pagination
-    const uniqueContacts = Array.from(
-      new Map(
-        contacts.map((c) => [
-          `${c.firstName}-${c.lastName}-${c.organization}`,
-          c,
-        ]),
-      ).values(),
+    // Fetch handles with SQL-level pagination across all databases
+    const { rows, total } = searchContactHandlesAcrossDatabases(
+      contactsDatabases,
+      firstName,
+      lastName,
+      limit,
+      offset,
     );
 
-    return uniqueContacts.slice(offset, offset + limit);
+    // Transform to ContactInfo with normalization and deduplication
+    const data = transformToContactInfo(rows);
+
+    // Calculate pagination metadata
+    const hasMore = offset + limit < total;
+    const page = Math.floor(offset / limit) + 1;
+    const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+
+    return {
+      data,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore,
+        page,
+        totalPages,
+      },
+    };
   } catch (error) {
-    console.error("Error searching AddressBook:", error);
-    return [];
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to search contacts: ${errorMessage}`);
   }
 }
