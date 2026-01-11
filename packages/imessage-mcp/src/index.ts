@@ -144,10 +144,6 @@ const createServer = () => {
   const server = new McpServer({
     name: "imessage",
     version: deno.version,
-    capabilities: {
-      resources: {},
-      tools: {},
-    },
   });
 
   const messagesDatabase = openMessagesDatabase();
