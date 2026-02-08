@@ -1,6 +1,6 @@
 {
   "name": "@wyattjoh/imessage-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "MIT",
   "exports": "./mod.ts",
   "publish": {
@@ -10,8 +10,8 @@
     "build": "deno compile --allow-sys --allow-read --allow-write --allow-env --allow-net --allow-ffi --output=imessage-mcp mod.ts"
   },
   "imports": {
-    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.25.2",
-    "zod": "npm:zod@^4.3.5"
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.26.0",
+    "zod": "npm:zod@^4.3.6"
   },
   "repository": {
     "type": "git",
