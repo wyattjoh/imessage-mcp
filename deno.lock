@@ -10,7 +10,7 @@
     "jsr:@std/path@1": "1.0.9",
     "jsr:@std/path@1.0": "1.0.9",
     "jsr:@std/path@^1.1.4": "1.1.4",
-    "npm:@modelcontextprotocol/sdk@^1.26.0": "1.26.0_zod@4.3.6_hono@4.11.8_ajv@8.17.1_express@5.2.1",
+    "npm:@modelcontextprotocol/sdk@^1.27.1": "1.27.1_zod@4.3.6_hono@4.12.3_ajv@8.18.0_express@5.2.1",
     "npm:@types/node@*": "22.10.2",
     "npm:zod@^4.3.6": "4.3.6"
   },
@@ -58,14 +58,14 @@
     }
   },
   "npm": {
-    "@hono/node-server@1.19.9_hono@4.11.8": {
+    "@hono/node-server@1.19.9_hono@4.12.3": {
       "integrity": "sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==",
       "dependencies": [
         "hono"
       ]
     },
-    "@modelcontextprotocol/sdk@1.26.0_zod@4.3.6_hono@4.11.8_ajv@8.17.1_express@5.2.1": {
-      "integrity": "sha512-Y5RmPncpiDtTXDbLKswIJzTqu2hyBKxTNsgKqKclDbhIgg1wgtf1fRuvxgTnRfcnxtvvgbIEcqUOzZrJ6iSReg==",
+    "@modelcontextprotocol/sdk@1.27.1_zod@4.3.6_hono@4.12.3_ajv@8.18.0_express@5.2.1": {
+      "integrity": "sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA==",
       "dependencies": [
         "@hono/node-server",
         "ajv",
@@ -99,7 +99,7 @@
         "negotiator"
       ]
     },
-    "ajv-formats@3.0.1_ajv@8.17.1": {
+    "ajv-formats@3.0.1_ajv@8.18.0": {
       "integrity": "sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==",
       "dependencies": [
         "ajv"
@@ -108,8 +108,8 @@
         "ajv"
       ]
     },
-    "ajv@8.17.1": {
-      "integrity": "sha512-B/gBuNg5SiMTrPkC+A2+cW0RszwxYmn6VYxB/inlBStS5nx6xHIt/ehKRhIMhqusl7a8LjQoZnjCs5vhwxOQ1g==",
+    "ajv@8.18.0": {
+      "integrity": "sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==",
       "dependencies": [
         "fast-deep-equal",
         "fast-uri",
@@ -325,8 +325,8 @@
         "function-bind"
       ]
     },
-    "hono@4.11.8": {
-      "integrity": "sha512-eVkB/CYCCei7K2WElZW9yYQFWssG0DhaDhVvr7wy5jJ22K+ck8fWW0EsLpB0sITUTvPnc97+rrbQqIr5iqiy9Q=="
+    "hono@4.12.3": {
+      "integrity": "sha512-SFsVSjp8sj5UumXOOFlkZOG6XS9SJDKw0TbwFeV+AJ8xlST8kxK5Z/5EYa111UY8732lK2S/xB653ceuaoGwpg=="
     },
     "http-errors@2.0.1": {
       "integrity": "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==",
@@ -429,8 +429,8 @@
         "ipaddr.js"
       ]
     },
-    "qs@6.14.1": {
-      "integrity": "sha512-4EK3+xJl8Ts67nLYNwqw/dsFVnCf+qR7RgXSK9jEEm9unao3njwMDdmsdvoKBKHzxd7tCYz5e5M+SnMjdtXGQQ==",
+    "qs@6.15.0": {
+      "integrity": "sha512-mAZTtNCeetKMH+pSjrb76NAM8V9a05I9aBZOHztWy/UqcJdQYNsf59vrRKWnojAT9Y+GbIvoTBC++CPHqpDBhQ==",
       "dependencies": [
         "side-channel"
       ]
@@ -588,7 +588,7 @@
       },
       "packages/imessage-mcp": {
         "dependencies": [
-          "npm:@modelcontextprotocol/sdk@^1.26.0",
+          "npm:@modelcontextprotocol/sdk@^1.27.1",
           "npm:zod@^4.3.6"
         ]
       }
