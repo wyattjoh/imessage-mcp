@@ -5,6 +5,10 @@ A Deno monorepo containing packages for iMessage access on macOS:
 - **[@wyattjoh/imessage](packages/imessage)** - Core library for read-only iMessage database access
 - **[@wyattjoh/imessage-mcp](packages/imessage-mcp)** - Model Context Protocol (MCP) server for LLM integration
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/wyattjoh-imessage-mcp).
+
 ## Features
 
 - Search messages by text content, contact, or date range
