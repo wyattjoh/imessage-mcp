@@ -119,8 +119,11 @@ export const searchMessages = (
   let whereClause = "WHERE 1=1";
   const params: (string | number)[] = [];
 
+  // When a text query is provided, include rows where m.text matches OR
+  // m.text is NULL (content may live in attributedBody on modern macOS).
+  // Actual keyword filtering for attributedBody rows happens post-decode.
   if (query) {
-    whereClause += " AND m.text LIKE ?";
+    whereClause += " AND (m.text LIKE ? OR m.text IS NULL)";
     params.push(`%${query}%`);
   }
 
@@ -141,19 +144,15 @@ export const searchMessages = (
     params.push(appleTimestamp * 1000000000);
   }
 
-  // Count total results
-  const countSql = `
-    SELECT COUNT(*) as total
-    FROM message m
-    LEFT JOIN handle h ON m.handle_id = h.ROWID
-    ${whereClause}
-  `;
-  const countStmt = messagesDatabase.prepare(countSql);
-  const { total } = countStmt.get(...params) as { total: number };
+  // When a text query is present we over-fetch from the DB because some
+  // attributedBody rows will not match after decoding. We paginate in
+  // application code instead so counts stay accurate.
+  const needsPostFilter = !!query;
 
-  // Get paginated data
+  // Get paginated data -- when post-filtering, fetch without LIMIT/OFFSET
+  // so we can filter, then slice for the requested page.
   const dataSql = `
-    SELECT 
+    SELECT
       m.guid,
       m.text,
       m.attributedBody,
@@ -174,26 +173,52 @@ export const searchMessages = (
     FROM message m
     LEFT JOIN handle h ON m.handle_id = h.ROWID
     ${whereClause}
-    ORDER BY m.date DESC LIMIT ? OFFSET ?
+    ORDER BY m.date DESC${needsPostFilter ? "" : " LIMIT ? OFFSET ?"}
   `;
 
   const dataStmt = messagesDatabase.prepare(dataSql);
   interface RawMessageRow extends MessageWithHandle {
     attributedBody?: Uint8Array | null;
   }
-  const rawData = dataStmt.all(...params, limit, offset) as RawMessageRow[];
+  const rawData = (
+    needsPostFilter
+      ? dataStmt.all(...params)
+      : dataStmt.all(...params, limit, offset)
+  ) as RawMessageRow[];
 
-  // Process the data to handle attributedBody decoding
-  const data = rawData.map((row) => {
+  // Decode attributedBody, then apply text filter in application code
+  const queryLower = query?.toLowerCase();
+
+  const allMatching = rawData.reduce<MessageWithHandle[]>((acc, row) => {
     const { attributedBody, ...message } = row;
 
-    // If text is null/empty but attributedBody exists, decode it
     if (!message.text && attributedBody) {
       message.text = decodeAttributedBody(attributedBody);
     }
 
-    return message;
-  });
+    if (needsPostFilter && queryLower) {
+      const text = message.text?.toLowerCase() ?? "";
+      if (!text.includes(queryLower)) return acc;
+    }
+
+    acc.push(message);
+    return acc;
+  }, []);
+
+  const total = needsPostFilter ? allMatching.length : (() => {
+    const countSql = `
+      SELECT COUNT(*) as total
+      FROM message m
+      LEFT JOIN handle h ON m.handle_id = h.ROWID
+      ${whereClause}
+    `;
+    const countStmt = messagesDatabase.prepare(countSql);
+    return (countStmt.get(...params) as { total: number }).total;
+  })();
+
+  const data = needsPostFilter
+    ? allMatching.slice(offset, offset + limit)
+    : allMatching;
 
   return {
     data,
