@@ -99,6 +99,7 @@ searchContactsByName(name: string): Promise<PaginatedResult<ContactInfo>>
 - Deno with appropriate permissions:
   - `--allow-read`: Access to database files
   - `--allow-env=IMESSAGE_DB_PATH`: Custom Messages database path (optional)
+  - `--allow-sys=homedir`: Resolve the default Messages database path
   - `--allow-ffi`: SQLite native bindings
 
 ## License

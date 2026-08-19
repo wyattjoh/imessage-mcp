@@ -113,6 +113,40 @@ Deno.test("opens the database from IMESSAGE_DB_PATH", () => {
 
 Deno.test({
   name:
+    "uses the default database path when IMESSAGE_DB_PATH is unset or empty",
+  permissions: { env: true, ffi: true, read: false, sys: ["homedir"] },
+  fn: () => {
+    const previousHome = Deno.env.get("HOME");
+    const previousPath = Deno.env.get("IMESSAGE_DB_PATH");
+    Deno.env.set("HOME", "/dev/null");
+
+    try {
+      for (const envPath of [undefined, ""]) {
+        if (envPath === undefined) {
+          Deno.env.delete("IMESSAGE_DB_PATH");
+        } else {
+          Deno.env.set("IMESSAGE_DB_PATH", envPath);
+        }
+
+        assert.throws(openMessagesDatabase, /unable to open database/i);
+      }
+    } finally {
+      if (previousHome === undefined) {
+        Deno.env.delete("HOME");
+      } else {
+        Deno.env.set("HOME", previousHome);
+      }
+      if (previousPath === undefined) {
+        Deno.env.delete("IMESSAGE_DB_PATH");
+      } else {
+        Deno.env.set("IMESSAGE_DB_PATH", previousPath);
+      }
+    }
+  },
+});
+
+Deno.test({
+  name:
     "falls back to the default database path without environment permission",
   permissions: { env: false, ffi: true, read: false },
   fn: () => {

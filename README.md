@@ -256,7 +256,7 @@ deno publish
 ```bash
 # Work on @wyattjoh/imessage
 cd packages/imessage
-deno test --allow-read --allow-env --allow-ffi
+deno test --allow-read --allow-env --allow-ffi --allow-sys=homedir
 
 # Work on @wyattjoh/imessage-mcp
 cd packages/imessage-mcp

@@ -40,7 +40,7 @@ deno run --allow-read --allow-env --allow-sys --allow-ffi --watch mod.ts
 
 # Test the core library
 cd packages/imessage
-deno test --allow-read --allow-env --allow-ffi
+deno test --allow-read --allow-env --allow-ffi --allow-sys=homedir
 ```
 
 ## Architecture Overview
