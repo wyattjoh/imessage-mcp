@@ -66,8 +66,14 @@ export const decodeAttributedBody = (
 };
 
 const getImessageDbPath = (): string => {
-  const envPath = Deno.env.get("IMESSAGE_DB_PATH");
-  if (envPath) return envPath;
+  const envPermission = Deno.permissions.querySync({
+    name: "env",
+    variable: "IMESSAGE_DB_PATH",
+  });
+  if (envPermission.state === "granted") {
+    const envPath = Deno.env.get("IMESSAGE_DB_PATH");
+    if (envPath) return envPath;
+  }
   return join(homedir(), "Library", "Messages", "chat.db");
 };
 
