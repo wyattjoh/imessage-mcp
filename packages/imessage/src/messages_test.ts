@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Database } from "@db/sqlite";
-import { searchMessages } from "./messages.ts";
+import { openMessagesDatabase, searchMessages } from "./messages.ts";
 
 type FixtureMessage = {
   guid: string;
@@ -85,6 +85,81 @@ const insertMessage = (database: Database, message: FixtureMessage): void => {
     null,
   );
 };
+
+Deno.test("opens the database from IMESSAGE_DB_PATH", () => {
+  const previousPath = Deno.env.get("IMESSAGE_DB_PATH");
+  Deno.env.set("IMESSAGE_DB_PATH", ":memory:");
+
+  try {
+    const database = openMessagesDatabase();
+    try {
+      const databases = database.prepare("PRAGMA database_list").all() as {
+        seq: number;
+        name: string;
+        file: string;
+      }[];
+      assert.deepEqual(databases, [{ seq: 0, name: "main", file: "" }]);
+    } finally {
+      database.close();
+    }
+  } finally {
+    if (previousPath === undefined) {
+      Deno.env.delete("IMESSAGE_DB_PATH");
+    } else {
+      Deno.env.set("IMESSAGE_DB_PATH", previousPath);
+    }
+  }
+});
+
+Deno.test({
+  name:
+    "uses the default database path when IMESSAGE_DB_PATH is unset or empty",
+  permissions: { env: true, ffi: true, read: false, sys: ["homedir"] },
+  fn: () => {
+    const previousHome = Deno.env.get("HOME");
+    const previousPath = Deno.env.get("IMESSAGE_DB_PATH");
+    Deno.env.set("HOME", "/dev/null");
+
+    try {
+      for (const envPath of [undefined, ""]) {
+        if (envPath === undefined) {
+          Deno.env.delete("IMESSAGE_DB_PATH");
+        } else {
+          Deno.env.set("IMESSAGE_DB_PATH", envPath);
+        }
+
+        assert.throws(openMessagesDatabase, /unable to open database/i);
+      }
+    } finally {
+      if (previousHome === undefined) {
+        Deno.env.delete("HOME");
+      } else {
+        Deno.env.set("HOME", previousHome);
+      }
+      if (previousPath === undefined) {
+        Deno.env.delete("IMESSAGE_DB_PATH");
+      } else {
+        Deno.env.set("IMESSAGE_DB_PATH", previousPath);
+      }
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "falls back to the default database path without environment permission",
+  permissions: { env: false, ffi: true, read: false },
+  fn: () => {
+    assert.throws(
+      openMessagesDatabase,
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.doesNotMatch(error.message, /environment variable|env access/i);
+        return true;
+      },
+    );
+  },
+});
 
 Deno.test("searches decoded attributedBody content", () => {
   const database = createDatabase();

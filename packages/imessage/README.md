@@ -37,6 +37,17 @@ const contacts = await searchContactsByName("John Smith");
 db.close();
 ```
 
+### Custom Messages Database
+
+Set `IMESSAGE_DB_PATH` to open another read-only SQLite database instead of `~/Library/Messages/chat.db`:
+
+```bash
+IMESSAGE_DB_PATH=/tmp/imessage-snapshot.sqlite \
+  deno run --allow-read --allow-env=IMESSAGE_DB_PATH --allow-ffi app.ts
+```
+
+This is useful for reading a periodically refreshed snapshot without granting the application access to the system Messages directory. When access to `IMESSAGE_DB_PATH` is not permitted, or the variable is empty or unset, `openMessagesDatabase()` falls back to the default path without prompting for environment access.
+
 ## Features
 
 - **Message Search**: Full-text search with date and contact filters
@@ -87,7 +98,8 @@ searchContactsByName(name: string): Promise<PaginatedResult<ContactInfo>>
 - macOS (uses system iMessage and Contacts databases)
 - Deno with appropriate permissions:
   - `--allow-read`: Access to database files
-  - `--allow-env`: Environment variables
+  - `--allow-env=IMESSAGE_DB_PATH`: Custom Messages database path (optional)
+  - `--allow-sys=homedir`: Resolve the default Messages database path
   - `--allow-ffi`: SQLite native bindings
 
 ## License

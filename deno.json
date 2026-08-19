@@ -4,7 +4,7 @@
     "check": "deno check",
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "test": "deno test --allow-read --allow-env --allow-ffi --allow-net"
+    "test": "deno test --allow-read --allow-env --allow-ffi --allow-net --allow-sys=homedir"
   },
   "compilerOptions": {
     "strict": true,
